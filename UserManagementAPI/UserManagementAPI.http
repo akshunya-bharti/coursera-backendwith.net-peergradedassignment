@@ -7,7 +7,7 @@ Accept: application/json
 ###
 
 # Get a user by ID (replace {{userId}} with an actual GUID)
-@userId = ee2dfb06-7ebb-4f8e-884a-d60f813af653
+@userId = 0886cedf-bef8-4320-9723-537bbda48404
 GET {{UserManagementAPI_HostAddress}}/users/{{userId}}
 Accept: application/json
 
@@ -36,6 +36,84 @@ Content-Type: application/json
 ###
 
 # Delete a user (replace {{userId}} with actual GUID)
-DELETE {{UserManagementAPI_HostAddress}}/users/a7a9ff73-cb22-4eba-8423-95a16bd3b333
+DELETE {{UserManagementAPI_HostAddress}}/users/32d6d590-12e2-4d0f-9b4c-080d65a2c74d
 
 ###
+
+### Middleware test scenarios
+
+# NOTE: The token middleware reads valid tokens from the VALID_TOKENS env var (comma-separated).
+# By default the middleware falls back to a demo token: "demo-token".
+# In PowerShell you can set by running below command: 
+# $env:VALID_TOKENS = 'demo-token,my-other-token'
+
+###
+
+# 1) GET /users with a valid token (should return 200)
+GET {{UserManagementAPI_HostAddress}}/users
+Accept: application/json
+Authorization: Bearer demo-token
+
+###
+
+# 2) GET /users with an invalid token (should return 401 and JSON { "error": "Unauthorized" })
+GET {{UserManagementAPI_HostAddress}}/users
+Accept: application/json
+Authorization: Bearer invalid-token
+
+###
+
+# 3) GET /users without Authorization header (should return 401)
+GET {{UserManagementAPI_HostAddress}}/users
+Accept: application/json
+
+###
+
+# 4) POST /users with valid token (create user) - expected 201
+POST {{UserManagementAPI_HostAddress}}/users
+Content-Type: application/json
+Authorization: Bearer demo-token
+
+{
+  "name": "Integration Tester",
+  "email": "int.test@example.com"
+}
+
+###
+
+# 5) POST /users with invalid token (should return 401)
+POST {{UserManagementAPI_HostAddress}}/users
+Content-Type: application/json
+Authorization: Bearer invalid-token
+
+{
+  "name": "Bad Token",
+  "email": "bad.token@example.com"
+}
+
+###
+
+# 6) POST /users with valid token but invalid payload (validation error -> 400)
+POST {{UserManagementAPI_HostAddress}}/users
+Content-Type: application/json
+Authorization: Bearer demo-token
+
+{
+  "name": "",
+  "email": "not-an-email"
+}
+
+###
+
+# 7) Trigger an internal server error (500) to validate exception middleware.
+# NOTE: The app does not ship a throw endpoint by default. Add an endpoint for testing in Program.cs:
+#   app.MapGet("/test/throw", () => throw new Exception("Test exception"));
+# Then run this request (include a valid token so token middleware does not block it).
+GET {{UserManagementAPI_HostAddress}}/test/throw
+Accept: application/json
+Authorization: Bearer demo-token
+
+###
+
+# 8) Verify logs: hit endpoints above and inspect console logs for method, path and response status codes.
+# Use a mixture of valid and invalid tokens and the throw endpoint to confirm errors are logged and JSON responses are consistent.
