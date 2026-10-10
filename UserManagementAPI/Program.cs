@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.Linq;
 using System.Net.Mail;
 
@@ -19,12 +20,14 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-// In-memory user store (for demo/testing). Replace with a DB in production.
-var users = new List<User>
+// In-memory thread-safe user store (for demo/testing). Replace with a DB in production.
+var users = new ConcurrentDictionary<Guid, User>();
 {
-    new User(Guid.NewGuid(), "Alice", "alice@example.com"),
-    new User(Guid.NewGuid(), "Bob", "bob@example.com")
-};
+    var u1 = new User(Guid.NewGuid(), "Alice", "alice@example.com");
+    var u2 = new User(Guid.NewGuid(), "Bob", "bob@example.com");
+    users[u1.Id] = u1;
+    users[u2.Id] = u2;
+}
 
 // Helper validation functions
 static bool IsNullOrWhiteSpace(string? value) => string.IsNullOrWhiteSpace(value);
@@ -46,14 +49,26 @@ static bool IsValidEmail(string? email)
 
 // CRUD endpoints for users
 
-// GET /users - list all users
-app.MapGet("/users", () => Results.Ok(users));
+// GET /users - list all users (paged optional)
+app.MapGet("/users", (int? page, int? pageSize) =>
+{
+    // Snapshot values to avoid enumerating a changing collection
+    var snapshot = users.Values.ToArray();
+    if (page is null && pageSize is null)
+        return Results.Ok(snapshot);
+
+    var p = Math.Max(1, page ?? 1);
+    var ps = Math.Clamp(pageSize ?? 50, 1, 100);
+    var items = snapshot.Skip((p - 1) * ps).Take(ps).ToArray();
+    return Results.Ok(new { page = p, pageSize = ps, total = snapshot.Length, items });
+});
 
 // GET /users/{id} - get user by id
 app.MapGet("/users/{id:guid}", (Guid id) =>
 {
-    var user = users.FirstOrDefault(u => u.Id == id);
-    return user is not null ? Results.Ok(user) : Results.NotFound();
+    return users.TryGetValue(id, out var user)
+        ? Results.Ok(user)
+        : Results.NotFound(new { error = "User not found." });
 }).WithName("GetUserById");
 
 // POST /users - create new user
@@ -66,29 +81,37 @@ app.MapPost("/users", (UserCreateDto dto) =>
         return Results.BadRequest(new { error = "Email is required and must be a valid email address." });
 
     var user = new User(Guid.NewGuid(), dto.Name.Trim(), dto.Email.Trim());
-    users.Add(user);
+    var added = users.TryAdd(user.Id, user);
+    if (!added)
+        return Results.Problem(detail: "Failed to add user.", statusCode: 500);
+
     return Results.CreatedAtRoute("GetUserById", new { id = user.Id }, user);
 });
 
 // PUT /users/{id} - update existing user
 app.MapPut("/users/{id:guid}", (Guid id, UserUpdateDto dto) =>
 {
-    var user = users.FirstOrDefault(u => u.Id == id);
-    if (user is null) return Results.NotFound();
+    // Ensure user exists
+    if (!users.TryGetValue(id, out var existing))
+        return Results.NotFound();
 
     // Validate provided fields
-    if (dto.Name is not null)
-    {
-        if (IsNullOrWhiteSpace(dto.Name))
-            return Results.BadRequest(new { error = "If provided, Name cannot be empty." });
-        user.Name = dto.Name.Trim();
-    }
+    if (dto.Name is not null && IsNullOrWhiteSpace(dto.Name))
+        return Results.BadRequest(new { error = "If provided, Name cannot be empty." });
+    if (dto.Email is not null && !IsValidEmail(dto.Email))
+        return Results.BadRequest(new { error = "If provided, Email must be a valid email address." });
 
-    if (dto.Email is not null)
+    var newName = dto.Name is not null ? dto.Name.Trim() : existing.Name;
+    var newEmail = dto.Email is not null ? dto.Email.Trim() : existing.Email;
+
+    var updated = new User(existing.Id, newName, newEmail);
+
+    // Try update with optimistic concurrency; fallback to set on failure
+    var updatedSuccessfully = users.TryUpdate(id, updated, existing);
+    if (!updatedSuccessfully)
     {
-        if (!IsValidEmail(dto.Email))
-            return Results.BadRequest(new { error = "If provided, Email must be a valid email address." });
-        user.Email = dto.Email.Trim();
+        // last-resort overwrite
+        users[id] = updated;
     }
 
     return Results.NoContent();
@@ -97,10 +120,8 @@ app.MapPut("/users/{id:guid}", (Guid id, UserUpdateDto dto) =>
 // DELETE /users/{id} - remove user by id
 app.MapDelete("/users/{id:guid}", (Guid id) =>
 {
-    var user = users.FirstOrDefault(u => u.Id == id);
-    if (user is null) return Results.NotFound();
-    users.Remove(user);
-    return Results.NoContent();
+    var removed = users.TryRemove(id, out var _);
+    return removed ? Results.NoContent() : Results.NotFound();
 });
 
 // (Removed example WeatherForecast endpoint - not relevant to user management API)
