@@ -24,19 +24,8 @@ if (app.Environment.IsDevelopment())
 }
 else
 {
-    // Global exception handler for production
-    app.UseExceptionHandler(errorApp =>
-    {
-        errorApp.Run(async context =>
-        {
-            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
-            var ex = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
-            logger.LogError(ex, "Unhandled exception processing request");
-            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-            context.Response.ContentType = "application/problem+json";
-            await context.Response.WriteAsJsonAsync(new { title = "An unexpected error occurred." });
-        });
-    });
+    // Use custom exception handling middleware in non-development environments
+    app.UseCustomExceptionHandler();
 }
 
 app.UseHttpsRedirection();
