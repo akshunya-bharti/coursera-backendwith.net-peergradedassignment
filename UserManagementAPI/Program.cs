@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Mail;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -25,6 +26,24 @@ var users = new List<User>
     new User(Guid.NewGuid(), "Bob", "bob@example.com")
 };
 
+// Helper validation functions
+static bool IsNullOrWhiteSpace(string? value) => string.IsNullOrWhiteSpace(value);
+
+static bool IsValidEmail(string? email)
+{
+    if (string.IsNullOrWhiteSpace(email)) return false;
+    try
+    {
+        // Use MailAddress to validate format
+        var _ = new MailAddress(email);
+        return true;
+    }
+    catch
+    {
+        return false;
+    }
+}
+
 // CRUD endpoints for users
 
 // GET /users - list all users
@@ -40,7 +59,13 @@ app.MapGet("/users/{id:guid}", (Guid id) =>
 // POST /users - create new user
 app.MapPost("/users", (UserCreateDto dto) =>
 {
-    var user = new User(Guid.NewGuid(), dto.Name, dto.Email);
+    // Validate input
+    if (IsNullOrWhiteSpace(dto.Name))
+        return Results.BadRequest(new { error = "Name is required and cannot be empty." });
+    if (!IsValidEmail(dto.Email))
+        return Results.BadRequest(new { error = "Email is required and must be a valid email address." });
+
+    var user = new User(Guid.NewGuid(), dto.Name.Trim(), dto.Email.Trim());
     users.Add(user);
     return Results.CreatedAtRoute("GetUserById", new { id = user.Id }, user);
 });
@@ -50,9 +75,22 @@ app.MapPut("/users/{id:guid}", (Guid id, UserUpdateDto dto) =>
 {
     var user = users.FirstOrDefault(u => u.Id == id);
     if (user is null) return Results.NotFound();
-    // update fields
-    user.Name = dto.Name ?? user.Name;
-    user.Email = dto.Email ?? user.Email;
+
+    // Validate provided fields
+    if (dto.Name is not null)
+    {
+        if (IsNullOrWhiteSpace(dto.Name))
+            return Results.BadRequest(new { error = "If provided, Name cannot be empty." });
+        user.Name = dto.Name.Trim();
+    }
+
+    if (dto.Email is not null)
+    {
+        if (!IsValidEmail(dto.Email))
+            return Results.BadRequest(new { error = "If provided, Email must be a valid email address." });
+        user.Email = dto.Email.Trim();
+    }
+
     return Results.NoContent();
 });
 
