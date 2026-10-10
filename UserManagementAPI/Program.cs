@@ -16,19 +16,17 @@ builder.Services.AddOpenApi();
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
+// Use the custom exception handler for all environments so it consistently returns JSON error responses
+// and is guaranteed to be part of the middleware pipeline.
+app.UseCustomExceptionHandler();
+
 if (app.Environment.IsDevelopment())
 {
-    // Detailed errors in development
-    app.UseDeveloperExceptionPage();
+    // In development keep OpenAPI mapping; developer exception page is omitted so our custom middleware
+    // produces consistent JSON errors during local testing.
     app.MapOpenApi();
 }
-else
-{
-    // Use custom exception handling middleware in non-development environments
-    app.UseCustomExceptionHandler();
-}
 
-app.UseHttpsRedirection();
 // Token validation middleware - enforces Bearer tokens for incoming requests
 app.UseTokenValidation();
 
@@ -155,6 +153,9 @@ app.MapDelete("/users/{id:guid}", (Guid id) =>
 });
 
 // (Removed example WeatherForecast endpoint - not relevant to user management API)
+
+// Test endpoint to intentionally throw an exception so exception middleware can be exercised
+app.MapGet("/test/throw", () => { throw new Exception("Test exception"); });
 
 app.Run();
 
