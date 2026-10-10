@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Linq;
 using System.Net.Mail;
+using UserManagementAPI.Middleware;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -39,6 +40,8 @@ else
 }
 
 app.UseHttpsRedirection();
+// Request logging middleware - logs HTTP method, request path and response status code
+app.UseRequestLogging();
 
 // Capture background and domain-level exceptions so the process doesn't crash silently
 var _loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
