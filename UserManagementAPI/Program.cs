@@ -8,6 +8,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// Basic console logging for diagnostics
+builder.Logging.AddConsole();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
@@ -15,10 +17,43 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
+    // Detailed errors in development
+    app.UseDeveloperExceptionPage();
     app.MapOpenApi();
+}
+else
+{
+    // Global exception handler for production
+    app.UseExceptionHandler(errorApp =>
+    {
+        errorApp.Run(async context =>
+        {
+            var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
+            var ex = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
+            logger.LogError(ex, "Unhandled exception processing request");
+            context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+            context.Response.ContentType = "application/problem+json";
+            await context.Response.WriteAsJsonAsync(new { title = "An unexpected error occurred." });
+        });
+    });
 }
 
 app.UseHttpsRedirection();
+
+// Capture background and domain-level exceptions so the process doesn't crash silently
+var _loggerFactory = app.Services.GetRequiredService<ILoggerFactory>();
+var _globalLogger = _loggerFactory.CreateLogger("GlobalExceptionHandlers");
+
+AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+{
+    _globalLogger.LogCritical(e.ExceptionObject as Exception, "Unhandled domain exception");
+};
+
+TaskScheduler.UnobservedTaskException += (s, e) =>
+{
+    _globalLogger.LogError(e.Exception, "Unobserved task exception");
+    e.SetObserved();
+};
 
 // In-memory thread-safe user store (for demo/testing). Replace with a DB in production.
 var users = new ConcurrentDictionary<Guid, User>();
