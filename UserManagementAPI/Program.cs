@@ -29,6 +29,9 @@ else
 }
 
 app.UseHttpsRedirection();
+// Token validation middleware - enforces Bearer tokens for incoming requests
+app.UseTokenValidation();
+
 // Request logging middleware - logs HTTP method, request path and response status code
 app.UseRequestLogging();
 
